@@ -9,8 +9,8 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel
 
-from autoyt import pipeline, youtube
-from autoyt.config import CLIENT_SECRET_FILE, ROOT, UPLOAD_DIR, anthropic_configured
+from autoyt import ai, pipeline, youtube
+from autoyt.config import CLIENT_SECRET_FILE, ROOT, UPLOAD_DIR, provider_configured
 
 app = FastAPI(title="AutoYT-manager")
 ALLOWED_EXT = {".mp4", ".mov", ".m4v", ".mkv", ".webm", ".avi"}
@@ -27,12 +27,20 @@ def _job_view(job: pipeline.Job) -> dict:
 
 
 def _options(privacy: str, music_mood: str, replace_audio: bool, title_card: bool, auto_upload: bool,
-             made_for_kids: bool, synthetic_media: bool, target_seconds: int = 60) -> pipeline.Options:
+             made_for_kids: bool, synthetic_media: bool, ai_provider: str,
+             target_seconds: int = 60) -> pipeline.Options:
     if privacy not in PRIVACY:
         raise HTTPException(400, "privacy must be private, unlisted or public")
+    ai_provider = ai_provider or ai.default_provider()
+    if ai_provider not in ai.PROVIDERS:
+        raise HTTPException(400, f"Unknown AI provider '{ai_provider}'")
+    if not provider_configured(ai_provider):
+        info = ai.PROVIDERS[ai_provider]
+        raise HTTPException(400, f"{info['label']} has no API key. Add {info['key']} to .env and restart the app.")
     return pipeline.Options(privacy=privacy, music_mood=music_mood, replace_audio=replace_audio,
                             title_card=title_card, auto_upload=auto_upload, made_for_kids=made_for_kids,
-                            synthetic_media=synthetic_media, target_seconds=max(20, min(600, target_seconds)))
+                            synthetic_media=synthetic_media, target_seconds=max(20, min(600, target_seconds)),
+                            ai_provider=ai_provider)
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -48,7 +56,12 @@ def status():
     except Exception as e:
         yt_error = str(e)
     return {
-        "claude_configured": anthropic_configured(),
+        "providers": [
+            {"id": pid, "label": p["label"], "model": p["model"], "free": p["free"], "key": p["key"],
+             "configured": provider_configured(pid)}
+            for pid, p in ai.PROVIDERS.items()
+        ],
+        "default_provider": ai.default_provider(),
         "client_secret_present": CLIENT_SECRET_FILE.exists(),
         "youtube_channel": channel,
         "youtube_error": yt_error or _connect_state["error"],
@@ -86,14 +99,16 @@ async def new_video_job(
     file: UploadFile = File(...), notes: str = Form(""), privacy: str = Form("private"),
     music_mood: str = Form("auto"), replace_audio: bool = Form(False), title_card: bool = Form(True),
     auto_upload: bool = Form(False), made_for_kids: bool = Form(False), synthetic_media: bool = Form(False),
+    ai_provider: str = Form(""),
 ):
     ext = Path(file.filename or "").suffix.lower()
     if ext not in ALLOWED_EXT:
         raise HTTPException(400, f"Unsupported file type {ext or '(none)'}. Use: {', '.join(sorted(ALLOWED_EXT))}")
+    opts = _options(privacy, music_mood, replace_audio, title_card, auto_upload, made_for_kids, synthetic_media,
+                    ai_provider)
     dest = UPLOAD_DIR / f"{uuid.uuid4().hex}{ext}"
     with dest.open("wb") as f:
         shutil.copyfileobj(file.file, f, length=4 * 1024 * 1024)
-    opts = _options(privacy, music_mood, replace_audio, title_card, auto_upload, made_for_kids, synthetic_media)
     return _job_view(pipeline.create_job("video", opts, prompt=notes, source=dest))
 
 
@@ -101,11 +116,12 @@ async def new_video_job(
 def new_prompt_job(
     prompt: str = Form(...), privacy: str = Form("private"), music_mood: str = Form("auto"),
     target_seconds: int = Form(60), auto_upload: bool = Form(False), made_for_kids: bool = Form(False),
-    synthetic_media: bool = Form(False),
+    synthetic_media: bool = Form(False), ai_provider: str = Form(""),
 ):
     if len(prompt.strip()) < 5:
         raise HTTPException(400, "Describe the video you want in a sentence or more.")
-    opts = _options(privacy, music_mood, False, False, auto_upload, made_for_kids, synthetic_media, target_seconds)
+    opts = _options(privacy, music_mood, False, False, auto_upload, made_for_kids, synthetic_media, ai_provider,
+                    target_seconds)
     return _job_view(pipeline.create_job("prompt", opts, prompt=prompt))
 
 

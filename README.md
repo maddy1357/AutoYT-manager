@@ -1,6 +1,6 @@
 # AutoYT-manager
 
-Upload a video or type an idea. AutoYT-manager writes the title, description, hashtags and tags,
+Upload a video or type an idea. Using Gemini (free), ChatGPT or Claude, AutoYT-manager writes the title, description, hashtags and tags,
 designs a thumbnail, composes copyright-free background music, edits the video, and uploads it to
 your YouTube channel.
 
@@ -10,9 +10,9 @@ Everything runs on your own PC in a browser tab at `http://127.0.0.1:8000`.
 
 | Step | Video mode (you upload a clip) | Prompt mode (you type an idea) |
 |---|---|---|
-| Content | Your footage | Claude writes a scene-by-scene script. The app renders slides and an offline voice-over |
-| Title, description, hashtags, tags | Claude looks at 8 frames from your video plus your notes | Written along with the script |
-| Thumbnail | 1280×720, built from the frame Claude rates best, with bold text | Built from the first slide |
+| Content | Your footage | The AI writes a scene-by-scene script. The app renders slides and an offline voice-over |
+| Title, description, hashtags, tags | The AI looks at 8 frames from your video plus your notes | Written along with the script |
+| Thumbnail | 1280×720, built from the frame the AI rates best, with bold text | Built from the first slide |
 | Music | Generated from scratch by the app (calm, upbeat, lo-fi or epic) | Same |
 | Editing | Scaled to 1080p (vertical videos stay vertical), loudness evened out, fades, title card, music that drops under speech | Slides with a slow zoom, voice-over and music |
 | Upload | YouTube Data API: title, description, tags, category, visibility, thumbnail | Same |
@@ -28,9 +28,9 @@ The app is built so that nothing it adds can trigger a copyright claim:
   as original music.
 - **Thumbnails, title cards and slides** use only your own footage, generated gradients and the fonts
   installed on your PC.
-- **Text**: Claude is told never to quote lyrics or scripts, and never to use other creators' or brands'
+- **Text**: the AI is told never to quote lyrics or scripts, and never to use other creators' or brands'
   names to attract views.
-- **Copyright check**: before every upload, Claude reviews the frames and text for third-party material,
+- **Copyright check**: before every upload, the AI reviews the frames and text for third-party material,
   such as TV or movie footage, sports broadcasts, music videos, other creators' clips and prominent logos.
   It also checks whether you kept the clip's original audio.
 - **Upload gate**: if anything is flagged, the video is held as **Needs review**. It won't upload, even with
@@ -54,13 +54,25 @@ run.bat
 
 `run.bat` creates a virtual environment, installs the packages, creates `.env`, and opens the app.
 
-### 1. Claude API key
+### 1. AI key (at least one)
 
-Create a key at <https://console.anthropic.com/settings/keys> and put it in `.env`:
+You choose the AI model for each video in the app. Add one or more keys to `.env`, then restart the app:
+
+| Provider | Default model | Cost | Get a key |
+|---|---|---|---|
+| **Gemini** | `gemini-3.8-flash` (the best free Gemini model) | **Free tier**, about 10 requests per minute | <https://aistudio.google.com/apikey> |
+| **ChatGPT** | `gpt-6-astra` (OpenAI's flagship) | Paid. The OpenAI API has no free tier, and a ChatGPT subscription doesn't cover it | <https://platform.openai.com/api-keys> |
+| **Claude** | `claude-opus-5-5` | Paid | <https://console.anthropic.com/settings/keys> |
 
 ```
-ANTHROPIC_API_KEY=sk-ant-...
+GEMINI_API_KEY=...
+OPENAI_API_KEY=...
+ANTHROPIC_API_KEY=...
 ```
+
+To change models, set `GEMINI_MODEL` (for example `gemini-4-argon`, Google's paid top model), `OPENAI_MODEL`
+(for example `gpt-6.1-sol` for a cheaper option) or `CLAUDE_MODEL`. Gemini's free tier may use your
+prompts and frames to improve Google's products. Use a paid provider for footage you want kept private.
 
 ### 2. Connect your YouTube channel (one-time)
 
@@ -90,7 +102,7 @@ Things Google enforces, not this app:
 
 | Option | Default | Notes |
 |---|---|---|
-| Background music | Auto | Claude picks the mood. Choose "No music" for talks or music performances |
+| Background music | Auto | The AI picks the mood. Choose "No music" for talks or music performances |
 | Visibility | Private | Private, Unlisted or Public |
 | Replace original audio | Off | The safest choice against music claims |
 | Title card | On | Shows the title as a lower-third banner for the first ~5 seconds |
@@ -102,7 +114,7 @@ Optional settings in `.env`:
 
 - `AUTOYT_RESOLUTION=720` renders at 720p, about 2× faster on low-power laptops.
 - `AUTOYT_X264_PRESET` sets the encoder speed. The default `veryfast` is fine, because YouTube re-encodes every upload anyway.
-- `CLAUDE_MODEL` sets the Claude model. The default is `claude-opus-5-5`.
+- `AI_PROVIDER` sets which AI is selected by default (`gemini`, `openai` or `claude`). `GEMINI_MODEL`, `OPENAI_MODEL` and `CLAUDE_MODEL` change the model.
 
 ## Project layout
 
@@ -110,7 +122,7 @@ Optional settings in `.env`:
 app.py              FastAPI server and HTTP API
 static/index.html   Web UI
 autoyt/
-  ai.py             Claude: metadata, copyright review, scripts (structured JSON output)
+  ai.py             Gemini / ChatGPT / Claude: metadata, copyright review, scripts (structured JSON output)
   pipeline.py       Job runner: video mode and prompt mode, copyright policy, upload
   editor.py         ffmpeg editing: scaling, loudness, fades, title card, ducked music, slideshow
   music.py          Procedural royalty-free music synthesiser

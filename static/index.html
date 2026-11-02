@@ -82,6 +82,10 @@
     </div>
 
     <form id="form" autocomplete="off">
+      <label for="provider" style="margin-top:0">AI model</label>
+      <select id="provider"><option value="">Loading…</option></select>
+      <p class="hint" id="provider-hint"></p>
+
       <div data-pane="video">
         <div class="drop" id="drop" tabindex="0">Drop a video here or click to choose<br><span class="hint">MP4, MOV, MKV, WEBM, AVI</span></div>
         <input type="file" id="file" accept="video/*" hidden>
@@ -170,6 +174,8 @@ $("#form").onsubmit = async e => {
   fd.append("auto_upload", $("#auto_upload").checked);
   fd.append("made_for_kids", $("#kids").checked);
   fd.append("synthetic_media", $("#synthetic").checked);
+  fd.append("ai_provider", $("#provider").value);
+  if ($("#provider").selectedOptions[0]?.dataset.missing) { err.textContent = $("#provider-hint").textContent; return; }
   let url;
   if (tab === "video") {
     if (!file) { err.textContent = "Choose a video first."; return; }
@@ -186,12 +192,31 @@ $("#form").onsubmit = async e => {
   finally { btn.disabled = false; btn.textContent = "Create video"; }
 };
 
+let providersSig = "";
+function renderProviders(providers, def) {
+  const sig = JSON.stringify(providers);
+  if (sig === providersSig) return;
+  const sel = $("#provider"), keep = providersSig ? sel.value : def;
+  providersSig = sig;
+  sel.innerHTML = providers.map(p => `<option value="${p.id}" ${p.configured ? "" : "data-missing=1"}>
+      ${esc(p.label)} · ${esc(p.model)}${p.free ? " (free)" : ""}${p.configured ? "" : " (no key)"}</option>`).join("");
+  sel.value = providers.some(p => p.id === keep) ? keep : def;
+  const hint = () => {
+    const p = providers.find(x => x.id === sel.value);
+    $("#provider-hint").textContent = !p ? "" : !p.configured
+      ? `Add ${p.key} to the .env file, then restart the app.`
+      : p.free ? "Free tier: about 10 requests per minute." : "Paid API: billed per use.";
+  };
+  sel.onchange = hint; hint();
+}
+
 async function refreshStatus() {
   try {
     const s = await api("/api/status");
     const ch = s.youtube_channel;
+    renderProviders(s.providers, s.default_provider);
     $("#status").innerHTML = `
-      <span class="pill ${s.claude_configured ? "ok" : "bad"}">Claude ${s.claude_configured ? "ready" : "key missing"}</span>
+      ${s.providers.map(p => `<span class="pill ${p.configured ? "ok" : ""}" title="${esc(p.model)}">${esc(p.label)} ${p.configured ? "ready" : "no key"}</span>`).join("")}
       ${ch ? `<span class="pill ok">YouTube: ${esc(ch.title)}</span> <button class="btn" id="disc">Disconnect</button>`
            : `<button class="btn" id="conn" ${s.connecting ? "disabled" : ""}>${s.connecting ? "Waiting for Google sign-in…" : "Connect YouTube"}</button>`}
       ${s.youtube_error ? `<span class="pill bad" title="${esc(s.youtube_error)}">YouTube error</span>` : ""}`;
@@ -220,6 +245,7 @@ function jobCard(j) {
       <div class="job-title">${esc(m.title || (j.mode === "prompt" ? j.prompt.slice(0, 80) : "New video"))}</div>
       <span class="badge ${j.status}">${LABEL[j.status] || j.status}</span>
     </div>
+    <div class="step">${j.mode === "prompt" ? "From prompt" : "From video"} · AI: ${esc({gemini: "Gemini", claude: "Claude", openai: "ChatGPT"}[j.options.ai_provider] || j.options.ai_provider || "Claude")}</div>
     ${busy || j.status === "failed" ? `<div class="bar"><div style="width:${Math.round((j.progress || 0) * 100)}%"></div></div>
       <div class="step">${esc(j.step)}</div>` : ""}
     ${j.error ? `<div class="error">${esc(j.error)}</div>` : ""}

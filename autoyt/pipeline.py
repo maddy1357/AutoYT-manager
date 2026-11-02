@@ -24,6 +24,7 @@ class Options:
     made_for_kids: bool = False
     synthetic_media: bool = False       # YouTube "altered or synthetic content" disclosure
     target_seconds: int = 60            # prompt mode only
+    ai_provider: str = "gemini"         # gemini | claude | openai
 
 
 @dataclass
@@ -135,8 +136,9 @@ def _process_video(job: Job) -> None:
     if not frames:
         raise RuntimeError("Could not extract frames from the video.")
 
-    job.set("Writing title, description and hashtags with Claude", 0.15)
-    meta = ai.analyze_video(frames, info.duration, job.prompt, info.has_audio, not job.options.replace_audio)
+    job.set(f"Writing title, description and hashtags with {_ai_label(job)}", 0.15)
+    meta = ai.analyze_video(frames, info.duration, job.prompt, info.has_audio, not job.options.replace_audio,
+                            provider=job.options.ai_provider)
     _store_metadata(job, meta)
 
     mood = _mood(job, meta)
@@ -167,8 +169,8 @@ def _process_video(job: Job) -> None:
 # ---------------------------------------------------------------- prompt mode
 
 def _process_prompt(job: Job) -> None:
-    job.set("Writing script and metadata with Claude", 0.05)
-    script = ai.write_video_script(job.prompt, job.options.target_seconds)
+    job.set(f"Writing script and metadata with {_ai_label(job)}", 0.05)
+    script = ai.write_video_script(job.prompt, job.options.target_seconds, provider=job.options.ai_provider)
     _store_metadata(job, script)
     scenes = script.get("scenes") or []
     if not scenes:
@@ -214,6 +216,11 @@ def _process_prompt(job: Job) -> None:
 
 
 # ---------------------------------------------------------------- metadata + copyright
+
+def _ai_label(job: Job) -> str:
+    info = ai.PROVIDERS.get(job.options.ai_provider, {})
+    return f"{info.get('label', job.options.ai_provider)} ({info.get('model', '?')})"
+
 
 def _mood(job: Job, meta: dict) -> str:
     mood = job.options.music_mood

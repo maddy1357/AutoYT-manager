@@ -1,11 +1,13 @@
-"""Claude calls: YouTube metadata, copyright review, and scripts for prompt-only videos."""
+"""AI calls (Claude, Gemini or ChatGPT): YouTube metadata, copyright review, and scripts for prompt videos.
+
+All three providers get the same system prompt and the same JSON schema, and return the same dict.
+"""
 import base64
 import json
+import os
 from pathlib import Path
 
-import anthropic
-
-from .config import CLAUDE_MODEL
+from .config import CLAUDE_MODEL, GEMINI_MODEL, OPENAI_MODEL, provider_configured
 
 MOODS = ["calm", "upbeat", "lofi", "epic", "none"]
 
@@ -101,19 +103,44 @@ class AIError(RuntimeError):
     pass
 
 
-_client: anthropic.Anthropic | None = None
+PROVIDERS = {
+    "gemini": {"label": "Gemini", "model": GEMINI_MODEL, "key": "GEMINI_API_KEY", "free": True},
+    "claude": {"label": "Claude", "model": CLAUDE_MODEL, "key": "ANTHROPIC_API_KEY", "free": False},
+    "openai": {"label": "ChatGPT", "model": OPENAI_MODEL, "key": "OPENAI_API_KEY", "free": False},
+}
+
+# Provider-neutral message content: a list of ("text", str) and ("image", Path) parts.
+Part = tuple[str, "str | Path"]
+_clients: dict = {}
 
 
-def _get_client() -> anthropic.Anthropic:
-    global _client
-    if _client is None:
-        _client = anthropic.Anthropic()
-    return _client
+def _b64(path: Path) -> str:
+    return base64.standard_b64encode(Path(path).read_bytes()).decode("ascii")
 
 
-def _ask(content: list, schema: dict, effort: str = "medium") -> dict:
+def _parse(text: str | None, label: str) -> dict:
+    if not text:
+        raise AIError(f"{label} returned an empty answer.")
     try:
-        response = _get_client().beta.messages.create(
+        return json.loads(text)
+    except json.JSONDecodeError as e:
+        raise AIError(f"{label} returned invalid JSON. Retry the job.") from e
+
+
+# ---------------------------------------------------------------- Claude
+
+def _ask_claude(parts: list[Part], schema: dict, effort: str) -> dict:
+    import anthropic
+
+    if "claude" not in _clients:
+        _clients["claude"] = anthropic.Anthropic()
+    content = [
+        {"type": "text", "text": v} if kind == "text" else
+        {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": _b64(v)}}
+        for kind, v in parts
+    ]
+    try:
+        response = _clients["claude"].beta.messages.create(
             model=CLAUDE_MODEL,
             max_tokens=16000,
             system=SYSTEM,
@@ -137,46 +164,148 @@ def _ask(content: list, schema: dict, effort: str = "medium") -> dict:
         raise AIError("Claude declined to write metadata for this content.")
     if response.stop_reason == "max_tokens":
         raise AIError("Claude's answer was cut off. Try a shorter prompt.")
-    text = next((b.text for b in response.content if b.type == "text"), None)
-    if text is None:
-        raise AIError("Claude returned no text.")
-    return json.loads(text)
+    return _parse(next((b.text for b in response.content if b.type == "text"), None), "Claude")
 
 
-def _image_block(path: Path) -> dict:
-    data = base64.standard_b64encode(path.read_bytes()).decode("ascii")
-    return {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": data}}
+# ---------------------------------------------------------------- Gemini (free tier)
+
+def _ask_gemini(parts: list[Part], schema: dict, effort: str) -> dict:
+    from google import genai
+    from google.genai import errors, types
+
+    if "gemini" not in _clients:
+        _clients["gemini"] = genai.Client(api_key=os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY"))
+    contents = [
+        v if kind == "text" else types.Part.from_bytes(data=Path(v).read_bytes(), mime_type="image/jpeg")
+        for kind, v in parts
+    ]
+    try:
+        response = _clients["gemini"].models.generate_content(
+            model=GEMINI_MODEL,
+            contents=contents,
+            config=types.GenerateContentConfig(
+                system_instruction=SYSTEM,
+                response_mime_type="application/json",
+                response_json_schema=schema,
+                max_output_tokens=16000,
+            ),
+        )
+    except errors.ClientError as e:
+        if e.code in (401, 403) or "API key" in str(e.message):
+            raise AIError("Gemini API key is missing or invalid. Set GEMINI_API_KEY in .env "
+                          "(get a free key at https://aistudio.google.com/apikey).") from e
+        if e.code == 429:
+            raise AIError("Gemini free-tier limit reached. Wait a minute (or until tomorrow) and retry.") from e
+        raise AIError(f"Gemini rejected the request ({e.code}): {e.message}") from e
+    except errors.APIError as e:
+        raise AIError(f"Gemini API error ({e.code}): {e.message}") from e
+    except OSError as e:
+        raise AIError("Could not reach the Gemini API. Check your internet connection.") from e
+
+    candidate = (response.candidates or [None])[0]
+    reason = str(getattr(candidate, "finish_reason", "") or "")
+    if candidate is None or any(r in reason for r in ("SAFETY", "PROHIBITED", "BLOCKLIST", "RECITATION")):
+        raise AIError("Gemini declined to write metadata for this content.")
+    if "MAX_TOKENS" in reason:
+        raise AIError("Gemini's answer was cut off. Try a shorter prompt.")
+    return _parse(response.text, "Gemini")
 
 
-def analyze_video(frames: list[Path], duration: float, notes: str, has_audio: bool, keeps_original_audio: bool) -> dict:
-    content: list = []
+# ---------------------------------------------------------------- OpenAI (ChatGPT)
+
+def _ask_openai(parts: list[Part], schema: dict, effort: str) -> dict:
+    import openai
+
+    if "openai" not in _clients:
+        _clients["openai"] = openai.OpenAI()
+    content = [
+        {"type": "input_text", "text": v} if kind == "text" else
+        {"type": "input_image", "image_url": f"data:image/jpeg;base64,{_b64(v)}"}
+        for kind, v in parts
+    ]
+    try:
+        response = _clients["openai"].responses.create(
+            model=OPENAI_MODEL,
+            instructions=SYSTEM,
+            input=[{"role": "user", "content": content}],
+            text={"format": {"type": "json_schema", "name": "youtube_video", "schema": schema, "strict": True}},
+            max_output_tokens=16000,
+        )
+    except openai.AuthenticationError as e:
+        raise AIError("OpenAI API key is missing or invalid. Set OPENAI_API_KEY in .env.") from e
+    except openai.RateLimitError as e:
+        raise AIError("OpenAI rate limit or quota reached. The OpenAI API is pay-as-you-go: add credit at "
+                      "https://platform.openai.com/settings/organization/billing.") from e
+    except openai.BadRequestError as e:
+        raise AIError(f"OpenAI rejected the request: {e.message}") from e
+    except openai.APIStatusError as e:
+        raise AIError(f"OpenAI API error ({e.status_code}): {e.message}") from e
+    except openai.APIConnectionError as e:
+        raise AIError("Could not reach the OpenAI API. Check your internet connection.") from e
+
+    for item in response.output or []:
+        for block in getattr(item, "content", None) or []:
+            if getattr(block, "type", "") == "refusal":
+                raise AIError("ChatGPT declined to write metadata for this content.")
+    if response.status == "incomplete":
+        raise AIError("ChatGPT's answer was cut off. Try a shorter prompt.")
+    return _parse(response.output_text, "ChatGPT")
+
+
+_ASK = {"claude": _ask_claude, "gemini": _ask_gemini, "openai": _ask_openai}
+
+
+def available_providers() -> list[str]:
+    return [p for p in PROVIDERS if provider_configured(p)]
+
+
+def default_provider() -> str:
+    preferred = os.getenv("AI_PROVIDER", "").strip().lower()
+    if preferred in PROVIDERS and provider_configured(preferred):
+        return preferred
+    available = available_providers()
+    return available[0] if available else "gemini"
+
+
+def _ask(provider: str, parts: list[Part], schema: dict, effort: str = "medium") -> dict:
+    if provider not in _ASK:
+        raise AIError(f"Unknown AI provider '{provider}'.")
+    if not provider_configured(provider):
+        info = PROVIDERS[provider]
+        raise AIError(f"{info['label']} is not set up. Add {info['key']} to the .env file and restart the app.")
+    return _ASK[provider](parts, schema, effort)
+
+
+def analyze_video(frames: list[Path], duration: float, notes: str, has_audio: bool, keeps_original_audio: bool,
+                  provider: str = "gemini") -> dict:
+    parts: list[Part] = []
     for i, frame in enumerate(frames):
-        content.append({"type": "text", "text": f"Frame {i} (at ~{duration * (i + 0.5) / len(frames):.0f}s):"})
-        content.append(_image_block(frame))
+        parts.append(("text", f"Frame {i} (at ~{duration * (i + 0.5) / len(frames):.0f}s):"))
+        parts.append(("image", frame))
     audio_note = (
         "The video has an audio track that will be kept, so consider whether it may contain commercial music."
         if has_audio and keeps_original_audio else
         "The original audio will be replaced or there is none."
     )
-    content.append({"type": "text", "text": (
+    parts.append(("text", (
         f"These are {len(frames)} frames sampled from a {duration:.0f}-second video I am uploading to YouTube. "
         f"{audio_note}\n\nCreator's notes about the video: {notes.strip() or '(none given)'}\n\n"
         "Write the YouTube metadata, pick the frame index that makes the strongest thumbnail "
         "(sharp, expressive, uncluttered) as thumbnail_frame, and review copyright risk."
-    )})
-    result = _ask(content, VIDEO_SCHEMA)
+    )))
+    result = _ask(provider, parts, VIDEO_SCHEMA)
     result["thumbnail_frame"] = max(0, min(int(result.get("thumbnail_frame", 0)), len(frames) - 1))
     return result
 
 
-def write_video_script(prompt: str, target_seconds: int) -> dict:
+def write_video_script(prompt: str, target_seconds: int, provider: str = "gemini") -> dict:
     scenes = max(3, min(12, round(target_seconds / 12)))
-    content = [{"type": "text", "text": (
+    parts: list[Part] = [("text", (
         f"Create an original faceless explainer-style YouTube video from this idea:\n\n{prompt.strip()}\n\n"
         f"Write about {scenes} scenes for a video of roughly {target_seconds} seconds. Each scene has a short "
         "heading (max 6 words), on_screen_text (one or two short lines, max 18 words) and narration "
         "(spoken voice-over, 1-3 sentences, natural and conversational). The first scene is a hook, the last "
         "scene is a recap with a call to subscribe. background_colors: 2-3 hex colors for slide gradients that "
         "fit the topic. Also write the YouTube metadata and review copyright risk of your own script."
-    )}]
-    return _ask(content, SCRIPT_SCHEMA, effort="high")
+    ))]
+    return _ask(provider, parts, SCRIPT_SCHEMA, effort="high")
