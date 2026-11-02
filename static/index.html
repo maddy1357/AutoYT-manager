@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AutoYT Manager</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --ink: #14161a; --muted: #5d6470; --line: #e3e6eb;
+    --brand: #e5262e; --brand-ink: #ffffff; --ok: #12805c; --warn: #b26a00; --bad: #c42b2b;
+    --chip: #f0f2f5; --focus: #2563eb;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1115; --panel: #171a20; --ink: #eef0f3; --muted: #9aa3b0; --line: #2a2f38;
+      --brand: #ff4b52; --chip: #232832; --ok: #3ccf91; --warn: #f0b13c; --bad: #ff6b6b; --focus: #6ea0ff;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { display: flex; align-items: center; gap: 16px; padding: 14px 24px; border-bottom: 1px solid var(--line); background: var(--panel); flex-wrap: wrap; }
+  header h1 { font-size: 18px; margin: 0; display: flex; align-items: center; gap: 8px; }
+  header h1 .logo { width: 28px; height: 20px; border-radius: 6px; background: var(--brand); display: inline-grid; place-items: center; }
+  header h1 .logo::after { content: ""; border-left: 8px solid #fff; border-top: 5px solid transparent; border-bottom: 5px solid transparent; margin-left: 2px; }
+  .status { margin-left: auto; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; font-size: 13px; color: var(--muted); }
+  .pill { padding: 3px 10px; border-radius: 999px; background: var(--chip); }
+  .pill.ok { color: var(--ok); } .pill.bad { color: var(--bad); }
+  main { display: grid; grid-template-columns: minmax(320px, 420px) 1fr; gap: 20px; padding: 20px 24px; max-width: 1400px; margin: 0 auto; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; padding: 16px; } header { padding: 12px 16px; } }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px; }
+  .tabs { display: flex; gap: 4px; background: var(--chip); padding: 4px; border-radius: 10px; margin-bottom: 16px; }
+  .tabs button { flex: 1; border: 0; background: transparent; padding: 8px; border-radius: 8px; font: inherit; color: var(--muted); cursor: pointer; }
+  .tabs button.active { background: var(--panel); color: var(--ink); font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+  label { display: block; font-size: 13px; font-weight: 600; margin: 12px 0 6px; }
+  input[type=text], input[type=number], textarea, select { width: 100%; padding: 9px 11px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); font: inherit; }
+  textarea { min-height: 90px; resize: vertical; }
+  input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+  .drop { border: 2px dashed var(--line); border-radius: 10px; padding: 22px; text-align: center; color: var(--muted); cursor: pointer; }
+  .drop.has { border-color: var(--ok); color: var(--ink); }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .check { display: flex; gap: 8px; align-items: flex-start; font-weight: 400; font-size: 14px; margin: 8px 0; }
+  .check input { margin-top: 4px; }
+  .hint { font-size: 12px; color: var(--muted); margin: 2px 0 0; }
+  .btn { border: 0; border-radius: 8px; padding: 10px 16px; font: inherit; font-weight: 600; cursor: pointer; background: var(--chip); color: var(--ink); }
+  .btn.primary { background: var(--brand); color: var(--brand-ink); width: 100%; margin-top: 16px; padding: 12px; }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+  .jobs { display: flex; flex-direction: column; gap: 14px; }
+  .job-head { display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+  .job-title { font-weight: 600; overflow-wrap: anywhere; }
+  .badge { font-size: 12px; font-weight: 600; padding: 2px 9px; border-radius: 999px; background: var(--chip); white-space: nowrap; }
+  .badge.ready, .badge.uploaded { color: var(--ok); } .badge.needs_review { color: var(--warn); } .badge.failed { color: var(--bad); }
+  .bar { height: 6px; background: var(--chip); border-radius: 99px; overflow: hidden; margin: 10px 0 4px; }
+  .bar > div { height: 100%; background: var(--brand); transition: width .4s; }
+  .step { font-size: 13px; color: var(--muted); }
+  .media { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 14px; }
+  @media (max-width: 640px) { .media { grid-template-columns: 1fr; } }
+  .media video, .media img { width: 100%; border-radius: 8px; background: #000; aspect-ratio: 16/9; object-fit: contain; }
+  .tags { display: flex; flex-wrap: wrap; gap: 6px; }
+  .tags span { background: var(--chip); padding: 2px 8px; border-radius: 6px; font-size: 13px; }
+  .checks { list-style: none; padding: 0; margin: 8px 0 0; }
+  .checks li { display: flex; gap: 8px; font-size: 13px; padding: 4px 0; }
+  .checks .i { font-weight: 700; width: 16px; flex: none; }
+  .checks .ok { color: var(--ok); } .checks .no { color: var(--warn); }
+  .actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 14px; }
+  .error { color: var(--bad); font-size: 14px; margin-top: 8px; white-space: pre-wrap; }
+  .empty { color: var(--muted); text-align: center; padding: 40px 10px; }
+  details summary { cursor: pointer; font-weight: 600; margin-top: 12px; }
+  a { color: var(--focus); }
+</style>
+</head>
+<body>
+<header>
+  <h1><span class="logo" aria-hidden="true"></span>AutoYT Manager</h1>
+  <div class="status" id="status"><span class="pill">Checking…</span></div>
+</header>
+
+<main>
+  <section class="card" aria-label="Create a video">
+    <div class="tabs" role="tablist">
+      <button class="active" data-tab="video" role="tab">Upload video</button>
+      <button data-tab="prompt" role="tab">From a prompt</button>
+    </div>
+
+    <form id="form" autocomplete="off">
+      <div data-pane="video">
+        <div class="drop" id="drop" tabindex="0">Drop a video here or click to choose<br><span class="hint">MP4, MOV, MKV, WEBM, AVI</span></div>
+        <input type="file" id="file" accept="video/*" hidden>
+        <label for="notes">What is the video about? <span class="hint">(optional, helps the title)</span></label>
+        <textarea id="notes" placeholder="e.g. My 3-day trip to Munnar, budget tips and best viewpoints"></textarea>
+      </div>
+
+      <div data-pane="prompt" hidden>
+        <label for="prompt">Video idea</label>
+        <textarea id="prompt" placeholder="e.g. 5 beginner Python tips that save time, with a quick example for each"></textarea>
+        <label for="seconds">Target length (seconds)</label>
+        <input type="number" id="seconds" value="60" min="20" max="600" step="10">
+        <p class="hint">Creates original slides, an offline voice-over and music.</p>
+      </div>
+
+      <div class="row">
+        <div>
+          <label for="mood">Background music</label>
+          <select id="mood">
+            <option value="auto">Auto (match the video)</option>
+            <option value="calm">Calm</option><option value="upbeat">Upbeat</option>
+            <option value="lofi">Lo-fi</option><option value="epic">Epic</option>
+            <option value="none">No music</option>
+          </select>
+        </div>
+        <div>
+          <label for="privacy">Visibility</label>
+          <select id="privacy">
+            <option value="private">Private</option><option value="unlisted">Unlisted</option><option value="public">Public</option>
+          </select>
+        </div>
+      </div>
+      <p class="hint">Music is generated from scratch by the app, so it is copyright-free.</p>
+
+      <div data-pane="video">
+        <label class="check"><input type="checkbox" id="replace_audio"> <span>Replace original audio with music<br><span class="hint">Use this if the clip has any music, radio or TV in the background.</span></span></label>
+        <label class="check"><input type="checkbox" id="title_card" checked> <span>Show title card at the start</span></label>
+      </div>
+      <label class="check"><input type="checkbox" id="auto_upload"> <span>Upload automatically when ready<br><span class="hint">Only if the copyright check passes. Otherwise it waits for you.</span></span></label>
+      <label class="check"><input type="checkbox" id="kids"> <span>Made for kids</span></label>
+      <label class="check"><input type="checkbox" id="synthetic"> <span>Contains realistic altered or synthetic content</span></label>
+
+      <button class="btn primary" id="submit" type="submit">Create video</button>
+      <div class="error" id="form-error" role="alert"></div>
+    </form>
+  </section>
+
+  <section aria-label="Jobs">
+    <div class="jobs" id="jobs"><div class="card empty">No videos yet. Upload one or start from a prompt.</div></div>
+  </section>
+</main>
+
+<script>
+const $ = (s, el = document) => el.querySelector(s);
+let tab = "video", file = null, editing = new Set();
+
+document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => {
+  tab = b.dataset.tab;
+  document.querySelectorAll(".tabs button").forEach(x => x.classList.toggle("active", x === b));
+  document.querySelectorAll("[data-pane]").forEach(p => p.hidden = p.dataset.pane !== tab);
+});
+
+const drop = $("#drop"), fileInput = $("#file");
+const pick = f => { file = f; drop.classList.toggle("has", !!f); drop.innerHTML = f ? `${esc(f.name)}<br><span class="hint">${(f.size/1048576).toFixed(1)} MB</span>` : drop.innerHTML; };
+drop.onclick = () => fileInput.click();
+drop.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fileInput.click(); } };
+fileInput.onchange = () => pick(fileInput.files[0]);
+drop.ondragover = e => { e.preventDefault(); };
+drop.ondrop = e => { e.preventDefault(); if (e.dataTransfer.files[0]) pick(e.dataTransfer.files[0]); };
+
+function esc(s) { return String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+
+async function api(path, opts = {}) {
+  const r = await fetch(path, opts);
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(body.detail || `Request failed (${r.status})`);
+  return body;
+}
+
+$("#form").onsubmit = async e => {
+  e.preventDefault();
+  const err = $("#form-error"); err.textContent = "";
+  const fd = new FormData();
+  fd.append("privacy", $("#privacy").value);
+  fd.append("music_mood", $("#mood").value);
+  fd.append("auto_upload", $("#auto_upload").checked);
+  fd.append("made_for_kids", $("#kids").checked);
+  fd.append("synthetic_media", $("#synthetic").checked);
+  let url;
+  if (tab === "video") {
+    if (!file) { err.textContent = "Choose a video first."; return; }
+    fd.append("file", file); fd.append("notes", $("#notes").value);
+    fd.append("replace_audio", $("#replace_audio").checked); fd.append("title_card", $("#title_card").checked);
+    url = "/api/jobs/video";
+  } else {
+    fd.append("prompt", $("#prompt").value); fd.append("target_seconds", $("#seconds").value);
+    url = "/api/jobs/prompt";
+  }
+  const btn = $("#submit"); btn.disabled = true; btn.textContent = tab === "video" ? "Uploading file…" : "Starting…";
+  try { await api(url, { method: "POST", body: fd }); pick(null); fileInput.value = ""; $("#prompt").value = ""; refresh(); }
+  catch (x) { err.textContent = x.message; }
+  finally { btn.disabled = false; btn.textContent = "Create video"; }
+};
+
+async function refreshStatus() {
+  try {
+    const s = await api("/api/status");
+    const ch = s.youtube_channel;
+    $("#status").innerHTML = `
+      <span class="pill ${s.claude_configured ? "ok" : "bad"}">Claude ${s.claude_configured ? "ready" : "key missing"}</span>
+      ${ch ? `<span class="pill ok">YouTube: ${esc(ch.title)}</span> <button class="btn" id="disc">Disconnect</button>`
+           : `<button class="btn" id="conn" ${s.connecting ? "disabled" : ""}>${s.connecting ? "Waiting for Google sign-in…" : "Connect YouTube"}</button>`}
+      ${s.youtube_error ? `<span class="pill bad" title="${esc(s.youtube_error)}">YouTube error</span>` : ""}`;
+    $("#conn") && ($("#conn").onclick = async () => { try { await api("/api/youtube/connect", { method: "POST" }); } catch (x) { alert(x.message); } refreshStatus(); });
+    $("#disc") && ($("#disc").onclick = async () => { await api("/api/youtube/disconnect", { method: "POST" }); refreshStatus(); });
+  } catch { $("#status").innerHTML = `<span class="pill bad">Server offline</span>`; }
+}
+
+const LABEL = { queued: "Queued", processing: "Processing", ready: "Ready", needs_review: "Needs review", uploading: "Uploading", uploaded: "Uploaded", failed: "Failed" };
+
+function jobCard(j) {
+  const m = j.metadata || {}, c = j.copyright || {}, busy = ["queued", "processing", "uploading"].includes(j.status);
+  const ver = j.log?.length || 0;
+  const media = j.urls.video ? `<div class="media">
+      <video controls preload="metadata" src="${j.urls.video}?v=${ver}"></video>
+      ${j.urls.thumbnail ? `<img alt="Thumbnail" src="${j.urls.thumbnail}?v=${Date.now() >> 14}">` : ""}</div>` : "";
+  const checks = (c.checks || []).map(k => `<li><span class="i ${k.ok ? "ok" : "no"}">${k.ok ? "✓" : "!"}</span><span><b>${esc(k.item)}:</b> ${esc(k.detail)}</span></li>`).join("");
+  const canEdit = ["ready", "needs_review", "failed"].includes(j.status) && m.title;
+  const yt = j.youtube?.url ? `<p>Uploaded as <b>${esc(j.options.privacy)}</b>: <a href="${j.youtube.url}" target="_blank" rel="noopener">${j.youtube.url}</a>
+      ${j.youtube.status ? `<br><span class="step">YouTube status: ${esc(j.youtube.status.uploadStatus)}${j.youtube.status.rejectionReason ? " (" + esc(j.youtube.status.rejectionReason) + ")" : ""}</span>` : ""}
+      ${(j.youtube.warnings || []).map(w => `<br><span class="step">${esc(w)}</span>`).join("")}</p>
+      <p class="hint">Before making it public, open YouTube Studio → Content → this video and check the "Copyright" result under Checks.</p>` : "";
+
+  return `<article class="card" data-id="${j.id}">
+    <div class="job-head">
+      <div class="job-title">${esc(m.title || (j.mode === "prompt" ? j.prompt.slice(0, 80) : "New video"))}</div>
+      <span class="badge ${j.status}">${LABEL[j.status] || j.status}</span>
+    </div>
+    ${busy || j.status === "failed" ? `<div class="bar"><div style="width:${Math.round((j.progress || 0) * 100)}%"></div></div>
+      <div class="step">${esc(j.step)}</div>` : ""}
+    ${j.error ? `<div class="error">${esc(j.error)}</div>` : ""}
+    ${media}
+    ${m.title ? `
+      ${canEdit ? `<details ${editing.has(j.id) ? "open" : ""}><summary>Edit title, description, tags</summary>
+        <label>Title</label><input type="text" data-f="title" maxlength="100" value="${esc(m.title)}">
+        <label>Description</label><textarea data-f="description" rows="6">${esc(m.description)}</textarea>
+        <label>Hashtags <span class="hint">(space separated)</span></label><input type="text" data-f="hashtags" value="${esc((m.hashtags || []).join(" "))}">
+        <label>Tags <span class="hint">(comma separated)</span></label><input type="text" data-f="tags" value="${esc((m.tags || []).join(", "))}">
+        <label>Thumbnail text</label><input type="text" data-f="thumbnail_text" value="${esc(m.thumbnail_text)}">
+        <label>Visibility</label><select data-f="privacy">${["private","unlisted","public"].map(p => `<option ${p === j.options.privacy ? "selected" : ""}>${p}</option>`).join("")}</select>
+        <div class="actions"><button class="btn" data-act="save">Save changes</button></div>
+      </details>` : `<p class="step">${esc(m.description).slice(0, 220)}…</p>`}
+      <div class="tags" style="margin-top:10px">${(m.hashtags || []).map(h => `<span>${esc(h)}</span>`).join("")}</div>
+      <details ${j.status === "needs_review" ? "open" : ""}><summary>Copyright check: ${esc(c.risk || "–")} risk</summary><ul class="checks">${checks}</ul></details>` : ""}
+    ${yt}
+    <div class="actions">
+      ${j.status === "ready" ? `<button class="btn primary" style="width:auto;margin:0" data-act="upload">Upload to YouTube</button>` : ""}
+      ${j.status === "needs_review" ? `<label class="check" style="margin:0"><input type="checkbox" data-f="confirm"> I own or have licensed everything in this video</label>
+        <button class="btn primary" style="width:auto;margin:0" data-act="upload">Upload anyway</button>` : ""}
+      ${j.status === "failed" ? `<button class="btn" data-act="retry">Retry</button>` : ""}
+      ${j.urls.video ? `<a class="btn" href="${j.urls.video}" download>Download MP4</a>` : ""}
+      ${j.urls.thumbnail ? `<a class="btn" href="${j.urls.thumbnail}" download>Thumbnail</a>` : ""}
+    </div>
+  </article>`;
+}
+
+$("#jobs").addEventListener("toggle", e => {
+  const card = e.target.closest("article"); if (!card || !e.target.querySelector("[data-f=title]")) return;
+  e.target.open ? editing.add(card.dataset.id) : editing.delete(card.dataset.id);
+}, true);
+
+$("#jobs").addEventListener("click", async e => {
+  const btn = e.target.closest("[data-act]"); if (!btn) return;
+  const card = btn.closest("article"), id = card.dataset.id, f = n => card.querySelector(`[data-f=${n}]`);
+  btn.disabled = true;
+  try {
+    if (btn.dataset.act === "save") {
+      await api(`/api/jobs/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
+        title: f("title").value, description: f("description").value,
+        hashtags: f("hashtags").value.split(/\s+/).filter(Boolean),
+        tags: f("tags").value.split(",").map(s => s.trim()).filter(Boolean),
+        thumbnail_text: f("thumbnail_text").value, privacy: f("privacy").value }) });
+      editing.delete(id);
+    } else if (btn.dataset.act === "upload") {
+      const confirm = f("confirm");
+      if (confirm && !confirm.checked) { alert("Tick the box to confirm you own the content, or fix the issues and create the video again."); return; }
+      await api(`/api/jobs/${id}/upload`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ confirm_rights: !!confirm?.checked }) });
+    } else if (btn.dataset.act === "retry") {
+      await api(`/api/jobs/${id}/retry`, { method: "POST" });
+    }
+    refresh(true);
+  } catch (x) { alert(x.message); }
+  finally { btn.disabled = false; }
+});
+
+let lastSig = "";
+async function refresh(force) {
+  try {
+    const jobs = await api("/api/jobs");
+    const sig = JSON.stringify(jobs.map(j => [j.id, j.status, j.progress, j.step, j.metadata, j.youtube, j.options.privacy]));
+    if (sig === lastSig && !force) return;
+    // Don't redraw a card while the user is typing in it.
+    const active = document.activeElement?.closest?.("article");
+    if (active && !force && ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement.tagName)) return;
+    lastSig = sig;
+    $("#jobs").innerHTML = jobs.length ? jobs.map(jobCard).join("") : `<div class="card empty">No videos yet. Upload one or start from a prompt.</div>`;
+  } catch {}
+}
+
+refresh(); refreshStatus();
+setInterval(refresh, 2000);
+setInterval(refreshStatus, 6000);
+</script>
+</body>
+</html>
