@@ -1,0 +1,10 @@
+# Secrets: never commit these
+.env
+client_secret*.json
+token.json
+
+# Local data
+workspace/
+.venv/
+__pycache__/
+*.pyc
