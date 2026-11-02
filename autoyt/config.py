@@ -13,6 +13,10 @@ for _d in (UPLOAD_DIR, JOBS_DIR):
     _d.mkdir(parents=True, exist_ok=True)
 
 CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-opus-5-5")
+# Best model on Gemini's free tier. Paid top model: gemini-4-argon.
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
+# OpenAI's flagship. Cheaper: gpt-6.1-sol, gpt-6-luna. (OpenAI's API has no free tier.)
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-6-astra")
 
 # Google OAuth "Desktop app" client downloaded from Google Cloud Console.
 CLIENT_SECRET_FILE = Path(os.getenv("YOUTUBE_CLIENT_SECRET", ROOT / "client_secret.json"))
@@ -25,5 +29,10 @@ MAX_TAGS_CHARS = 500
 MAX_HASHTAGS = 15
 
 
-def anthropic_configured() -> bool:
-    return bool(os.getenv("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_AUTH_TOKEN"))
+def provider_configured(provider: str) -> bool:
+    keys = {
+        "claude": ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"),
+        "gemini": ("GEMINI_API_KEY", "GOOGLE_API_KEY"),
+        "openai": ("OPENAI_API_KEY",),
+    }.get(provider, ())
+    return any(os.getenv(k, "").strip() for k in keys)
