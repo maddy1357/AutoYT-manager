@@ -23,6 +23,9 @@ def _job_view(job: pipeline.Job) -> dict:
     d.pop("source", None)
     d["full_description"] = pipeline.full_description(job) if job.metadata else ""
     d["urls"] = {k: f"/files/{job.id}/{v}" for k, v in job.files.items()}
+    d["file_base"] = f"/files/{job.id}/"
+    if job.suggestions:
+        d["default_choices"] = job.choices or pipeline.default_choices(job)
     return d
 
 
@@ -99,13 +102,14 @@ async def new_video_job(
     file: UploadFile = File(...), notes: str = Form(""), privacy: str = Form("private"),
     music_mood: str = Form("auto"), replace_audio: bool = Form(False), title_card: bool = Form(True),
     auto_upload: bool = Form(False), made_for_kids: bool = Form(False), synthetic_media: bool = Form(False),
-    ai_provider: str = Form(""),
+    ai_provider: str = Form(""), ai_decides: bool = Form(False),
 ):
     ext = Path(file.filename or "").suffix.lower()
     if ext not in ALLOWED_EXT:
         raise HTTPException(400, f"Unsupported file type {ext or '(none)'}. Use: {', '.join(sorted(ALLOWED_EXT))}")
     opts = _options(privacy, music_mood, replace_audio, title_card, auto_upload, made_for_kids, synthetic_media,
                     ai_provider)
+    opts.ai_decides = ai_decides
     dest = UPLOAD_DIR / f"{uuid.uuid4().hex}{ext}"
     with dest.open("wb") as f:
         shutil.copyfileobj(file.file, f, length=4 * 1024 * 1024)
@@ -162,6 +166,41 @@ def edit_job(job_id: str, patch: MetadataPatch):
             raise HTTPException(400, "Invalid privacy value")
         job.options.privacy = p
     pipeline.update_metadata(job, changes)
+    return _job_view(job)
+
+
+class Choices(BaseModel):
+    title: str
+    description: str
+    hashtags: list[str] = []
+    tags: list[str] = []
+    category_id: str | None = None
+    thumbnail_index: int = 0
+    thumbnail_text: str = ""
+    music_mood: str = "none"
+    replace_audio: bool = False
+    title_card: bool = True
+    privacy: str = "private"
+    made_for_kids: bool = False
+    synthetic_media: bool = False
+    auto_upload: bool = True
+    confirm_rights: bool = False
+
+
+@app.post("/api/jobs/{job_id}/finalize")
+def finalize_job(job_id: str, choices: Choices):
+    job = _get(job_id)
+    if job.mode != "video" or not job.suggestions:
+        raise HTTPException(409, "This job has no suggestions to choose from.")
+    if job.status in ("queued", "processing", "uploading"):
+        raise HTTPException(409, "Wait until the current step finishes.")
+    if job.status == "uploaded":
+        raise HTTPException(409, "This video is already on YouTube. Edit it in YouTube Studio.")
+    if choices.auto_upload and youtube.get_credentials() is None:
+        raise HTTPException(400, "Connect your YouTube channel first, or untick 'Upload to YouTube when done'.")
+    if not choices.title.strip():
+        raise HTTPException(400, "Title cannot be empty.")
+    pipeline.finalize(job, choices.model_dump())
     return _job_view(job)
 
 

@@ -65,6 +65,29 @@
   .error { color: var(--bad); font-size: 14px; margin-top: 8px; white-space: pre-wrap; }
   .empty { color: var(--muted); text-align: center; padding: 40px 10px; }
   details summary { cursor: pointer; font-weight: 600; margin-top: 12px; }
+  .choose { margin-top: 10px; }
+  .choice-group { border-top: 1px solid var(--line); padding: 14px 0 6px; }
+  .choice-group h4 { margin: 0 0 8px; font-size: 14px; }
+  .opt { display: flex; gap: 10px; align-items: flex-start; font-weight: 400; font-size: 14px; margin: 6px 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; }
+  .opt:has(input:checked) { border-color: var(--brand); background: color-mix(in srgb, var(--brand) 7%, transparent); }
+  .opt input { margin-top: 3px; flex: none; }
+  .opt.music { align-items: center; flex-wrap: wrap; }
+  .opt.music .music-name { min-width: 120px; }
+  .opt.music audio { height: 32px; flex: 1; min-width: 200px; }
+  .ai-pick { display: inline-block; margin-left: 8px; font-size: 11px; font-weight: 700; color: var(--ok); background: var(--chip); padding: 1px 7px; border-radius: 99px; vertical-align: 1px; }
+  .thumbs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  @media (max-width: 640px) { .thumbs { grid-template-columns: 1fr; } }
+  .thumb-opt { position: relative; margin: 0; cursor: pointer; border: 3px solid transparent; border-radius: 10px; overflow: hidden; }
+  .thumb-opt:has(input:checked) { border-color: var(--brand); }
+  .thumb-opt input { position: absolute; top: 8px; left: 8px; width: 18px; height: 18px; }
+  .thumb-opt img { display: block; width: 100%; aspect-ratio: 16/9; object-fit: cover; }
+  .thumb-opt .ai-pick { position: absolute; top: 8px; right: 8px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { border: 1px solid var(--line); background: var(--panel); color: var(--muted); border-radius: 99px; padding: 4px 11px; font: inherit; font-size: 13px; cursor: pointer; }
+  .chip.on { background: var(--brand); border-color: var(--brand); color: var(--brand-ink); }
+  .tips { margin: 4px 0; padding-left: 18px; font-size: 14px; }
+  .risk-low { color: var(--ok); } .risk-medium { color: var(--warn); } .risk-high { color: var(--bad); }
+  .badge.choosing { color: var(--focus); }
   a { color: var(--focus); }
 </style>
 </head>
@@ -91,6 +114,8 @@
         <input type="file" id="file" accept="video/*" hidden>
         <label for="notes">What is the video about? <span class="hint">(optional, helps the title)</span></label>
         <textarea id="notes" placeholder="e.g. My 3-day trip to Munnar, budget tips and best viewpoints"></textarea>
+        <p class="hint">You'll get title, description, hashtag, thumbnail and music suggestions to choose from.</p>
+        <label class="check"><input type="checkbox" id="ai_decides"> <span>Let AI choose everything<br><span class="hint">Skip the suggestions and use the AI's top pick for each option.</span></span></label>
       </div>
 
       <div data-pane="prompt" hidden>
@@ -98,37 +123,25 @@
         <textarea id="prompt" placeholder="e.g. 5 beginner Python tips that save time, with a quick example for each"></textarea>
         <label for="seconds">Target length (seconds)</label>
         <input type="number" id="seconds" value="60" min="20" max="600" step="10">
-        <p class="hint">Creates original slides, an offline voice-over and music.</p>
+        <label for="mood">Background music</label>
+        <select id="mood">
+          <option value="auto">Auto (match the video)</option>
+          <option value="calm">Calm</option><option value="upbeat">Upbeat</option>
+          <option value="lofi">Lo-fi</option><option value="epic">Epic</option>
+          <option value="none">No music</option>
+        </select>
+        <p class="hint">Creates original slides, an offline voice-over and copyright-free music.</p>
       </div>
 
-      <div class="row">
-        <div>
-          <label for="mood">Background music</label>
-          <select id="mood">
-            <option value="auto">Auto (match the video)</option>
-            <option value="calm">Calm</option><option value="upbeat">Upbeat</option>
-            <option value="lofi">Lo-fi</option><option value="epic">Epic</option>
-            <option value="none">No music</option>
-          </select>
-        </div>
-        <div>
-          <label for="privacy">Visibility</label>
-          <select id="privacy">
-            <option value="private">Private</option><option value="unlisted">Unlisted</option><option value="public">Public</option>
-          </select>
-        </div>
-      </div>
-      <p class="hint">Music is generated from scratch by the app, so it is copyright-free.</p>
-
-      <div data-pane="video">
-        <label class="check"><input type="checkbox" id="replace_audio"> <span>Replace original audio with music<br><span class="hint">Use this if the clip has any music, radio or TV in the background.</span></span></label>
-        <label class="check"><input type="checkbox" id="title_card" checked> <span>Show title card at the start</span></label>
-      </div>
-      <label class="check"><input type="checkbox" id="auto_upload"> <span>Upload automatically when ready<br><span class="hint">Only if the copyright check passes. Otherwise it waits for you.</span></span></label>
+      <label for="privacy">Visibility on YouTube</label>
+      <select id="privacy">
+        <option value="private">Private</option><option value="unlisted">Unlisted</option><option value="public">Public</option>
+      </select>
+      <label class="check"><input type="checkbox" id="auto_upload" checked> <span>Upload to YouTube Studio when done<br><span class="hint">Flagged videos wait for your confirmation instead.</span></span></label>
       <label class="check"><input type="checkbox" id="kids"> <span>Made for kids</span></label>
       <label class="check"><input type="checkbox" id="synthetic"> <span>Contains realistic altered or synthetic content</span></label>
 
-      <button class="btn primary" id="submit" type="submit">Create video</button>
+      <button class="btn primary" id="submit" type="submit">Get suggestions</button>
       <div class="error" id="form-error" role="alert"></div>
     </form>
   </section>
@@ -180,17 +193,23 @@ $("#form").onsubmit = async e => {
   if (tab === "video") {
     if (!file) { err.textContent = "Choose a video first."; return; }
     fd.append("file", file); fd.append("notes", $("#notes").value);
-    fd.append("replace_audio", $("#replace_audio").checked); fd.append("title_card", $("#title_card").checked);
+    fd.append("ai_decides", $("#ai_decides").checked);
     url = "/api/jobs/video";
   } else {
     fd.append("prompt", $("#prompt").value); fd.append("target_seconds", $("#seconds").value);
     url = "/api/jobs/prompt";
   }
   const btn = $("#submit"); btn.disabled = true; btn.textContent = tab === "video" ? "Uploading file…" : "Starting…";
-  try { await api(url, { method: "POST", body: fd }); pick(null); fileInput.value = ""; $("#prompt").value = ""; refresh(); }
+  try { await api(url, { method: "POST", body: fd }); pick(null); fileInput.value = ""; $("#prompt").value = ""; $("#notes").value = ""; refresh(); }
   catch (x) { err.textContent = x.message; }
-  finally { btn.disabled = false; btn.textContent = "Create video"; }
+  finally { btn.disabled = false; submitLabel(); }
 };
+
+function submitLabel() {
+  $("#submit").textContent = tab === "prompt" ? "Create video" : $("#ai_decides").checked ? "Create video" : "Get suggestions";
+}
+$("#ai_decides").onchange = submitLabel;
+document.querySelectorAll(".tabs button").forEach(b => b.addEventListener("click", submitLabel));
 
 let providersSig = "";
 function renderProviders(providers, def) {
@@ -225,10 +244,114 @@ async function refreshStatus() {
   } catch { $("#status").innerHTML = `<span class="pill bad">Server offline</span>`; }
 }
 
-const LABEL = { queued: "Queued", processing: "Processing", ready: "Ready", needs_review: "Needs review", uploading: "Uploading", uploaded: "Uploaded", failed: "Failed" };
+const LABEL = { queued: "Queued", processing: "Processing", choosing: "Choose options", ready: "Ready", needs_review: "Needs review", uploading: "Uploading", uploaded: "Uploaded", failed: "Failed" };
+const MOOD_LABEL = { calm: "Calm", upbeat: "Upbeat", lofi: "Lo-fi", epic: "Epic", none: "No music" };
+const reopen = new Set();   // jobs whose choice panel the user re-opened after building
+
+function choosePanel(j) {
+  const s = j.suggestions, d = j.default_choices, id = j.id, base = j.file_base;
+  const r = (group, value, checked) => `<input type="radio" name="${group}-${id}" data-g="${group}" value="${esc(value)}" ${checked ? "checked" : ""}>`;
+  const aiPick = `<span class="ai-pick">AI pick</span>`;
+  const titleIdx = Math.max(0, s.titles.indexOf(d.title));
+  const descIdx = Math.max(0, s.descriptions.indexOf(d.description));
+  const risk = s.copyright_review?.risk || "medium";
+  const audioNote = s.video.has_audio
+    ? `<div class="choice-group"><h4>Original sound</h4>
+        <label class="opt">${r("audio", "keep", !d.replace_audio)}<span>Keep my audio and mix music underneath${!s.replace_audio ? aiPick : ""}</span></label>
+        <label class="opt">${r("audio", "replace", d.replace_audio)}<span>Replace it with music only (safest if songs, radio or TV can be heard)${s.replace_audio ? aiPick : ""}</span></label></div>` : "";
+  return `<form class="choose" data-choose="${id}" onsubmit="return false">
+    <p class="step">Pick an option in each section or edit it. Everything is pre-filled with the AI's top picks.</p>
+
+    <div class="choice-group"><h4>Title</h4>
+      ${s.titles.map((t, i) => `<label class="opt">${r("title", i, i === titleIdx)}<span>${esc(t)}${i === 0 ? aiPick : ""}</span></label>`).join("")}
+      <input type="text" data-c="title" maxlength="100" value="${esc(d.title)}" aria-label="Title (editable)">
+    </div>
+
+    <div class="choice-group"><h4>Thumbnail</h4>
+      <div class="thumbs">${s.thumbnails.map((t, i) => `<label class="thumb-opt">${r("thumb", i, i === d.thumbnail_index)}
+        <img src="${base}${t.image}" alt="Thumbnail option ${i + 1}: ${esc(t.text)}">${i === 0 ? aiPick : ""}</label>`).join("")}</div>
+      <label>Thumbnail text</label><input type="text" data-c="thumbnail_text" value="${esc(d.thumbnail_text)}">
+    </div>
+
+    <div class="choice-group"><h4>Description</h4>
+      ${s.descriptions.map((t, i) => `<label class="opt">${r("desc", i, i === descIdx)}<span><b>${["Short", "Story", "Detailed / SEO"][i] || "Option " + (i + 1)}</b>${i === 0 ? aiPick : ""}<br><span class="hint">${esc(t.slice(0, 160))}${t.length > 160 ? "…" : ""}</span></span></label>`).join("")}
+      <textarea data-c="description" rows="6" aria-label="Description (editable)">${esc(d.description)}</textarea>
+    </div>
+
+    <div class="choice-group"><h4>Hashtags <span class="hint">(tap to add or remove; the first 3 show above your title)</span></h4>
+      <div class="chips">${s.hashtags.map(h => `<button type="button" class="chip ${d.hashtags.includes(h) ? "on" : ""}" data-tag="${esc(h)}" aria-pressed="${d.hashtags.includes(h)}">${esc(h)}</button>`).join("")}</div>
+      <label>Tags <span class="hint">(comma separated)</span></label><input type="text" data-c="tags" value="${esc(d.tags.join(", "))}">
+      <label>Category</label><select data-c="category_id">${Object.entries(s.categories).map(([k, v]) => `<option value="${k}" ${k === d.category_id ? "selected" : ""}>${esc(v)}</option>`).join("")}</select>
+    </div>
+
+    <div class="choice-group"><h4>Background music <span class="hint">(original, copyright-free)</span></h4>
+      ${["calm", "upbeat", "lofi", "epic"].map(m => `<label class="opt music">${r("music", m, d.music_mood === m)}
+        <span class="music-name">${MOOD_LABEL[m]}${s.music_mood === m ? aiPick : ""}</span>
+        <audio controls preload="none" src="${base}${s.music_previews[m]}"></audio></label>`).join("")}
+      <label class="opt">${r("music", "none", d.music_mood === "none")}<span>No music${s.music_mood === "none" ? aiPick : ""}</span></label>
+      ${s.music_reason ? `<p class="hint">AI: ${esc(s.music_reason)}</p>` : ""}
+    </div>
+
+    ${audioNote}
+
+    <div class="choice-group"><h4>Settings</h4>
+      <label class="check"><input type="checkbox" data-c="title_card" ${d.title_card ? "checked" : ""}> <span>Title banner at the start${s.title_card ? aiPick : ""}</span></label>
+      <label>Visibility</label><select data-c="privacy">${["private", "unlisted", "public"].map(p => `<option ${p === d.privacy ? "selected" : ""}>${p}</option>`).join("")}</select>
+      <label class="check"><input type="checkbox" data-c="made_for_kids" ${d.made_for_kids ? "checked" : ""}> <span>Made for kids${s.made_for_kids ? `<span class="ai-pick">AI suggests yes</span>` : ""}</span></label>
+      <label class="check"><input type="checkbox" data-c="synthetic_media" ${d.synthetic_media ? "checked" : ""}> <span>Contains realistic altered or synthetic content</span></label>
+    </div>
+
+    ${s.tips?.length ? `<div class="choice-group"><h4>Tips from the AI</h4><ul class="tips">${s.tips.map(t => `<li>${esc(t)}</li>`).join("")}</ul></div>` : ""}
+
+    <div class="choice-group"><h4>Copyright check: <span class="risk-${esc(risk)}">${esc(risk)} risk</span></h4>
+      ${(s.copyright_review?.issues || []).length ? `<ul class="tips">${s.copyright_review.issues.map(t => `<li>${esc(t)}</li>`).join("")}</ul>` : `<p class="hint">No third-party material detected in the frames.</p>`}
+      <label class="check"><input type="checkbox" data-c="confirm_rights"> <span>I own or have licensed everything in this video${risk !== "low" ? " (required to upload a flagged video automatically)" : ""}</span></label>
+    </div>
+
+    <label class="check"><input type="checkbox" data-c="auto_upload" ${d.auto_upload ? "checked" : ""}> <span><b>Upload to YouTube Studio when done</b></span></label>
+    <div class="actions">
+      <button class="btn primary" style="width:auto;margin:0" data-act="finalize">Create video${d.auto_upload ? " & upload" : ""}</button>
+      ${reopen.has(id) ? `<button class="btn" data-act="cancel-choose">Cancel</button>` : ""}
+    </div>
+  </form>`;
+}
+
+function collectChoices(form) {
+  const v = n => form.querySelector(`[data-c=${n}]`), g = n => form.querySelector(`[data-g=${n}]:checked`)?.value;
+  return {
+    title: v("title").value.trim(), description: v("description").value,
+    hashtags: [...form.querySelectorAll(".chip.on")].map(b => b.dataset.tag),
+    tags: v("tags").value.split(",").map(s => s.trim()).filter(Boolean),
+    category_id: v("category_id").value,
+    thumbnail_index: Number(g("thumb") || 0), thumbnail_text: v("thumbnail_text").value.trim(),
+    music_mood: g("music") || "none", replace_audio: g("audio") === "replace",
+    title_card: v("title_card").checked, privacy: v("privacy").value,
+    made_for_kids: v("made_for_kids").checked, synthetic_media: v("synthetic_media").checked,
+    auto_upload: v("auto_upload").checked, confirm_rights: v("confirm_rights").checked,
+  };
+}
 
 function jobCard(j) {
-  const m = j.metadata || {}, c = j.copyright || {}, busy = ["queued", "processing", "uploading"].includes(j.status);
+  if (j.suggestions && (j.status === "choosing" || reopen.has(j.id))) return cardShell(j, choosePanel(j));
+  return cardShell(j, cardBody(j));
+}
+
+function cardShell(j, inner) {
+  return `<article class="card" data-id="${j.id}">
+    <div class="job-head">
+      <div class="job-title">${esc(j.metadata?.title || (j.mode === "prompt" ? j.prompt.slice(0, 80) : "New video"))}</div>
+      <span class="badge ${j.status}">${LABEL[j.status] || j.status}</span>
+    </div>
+    <div class="step">${j.mode === "prompt" ? "From prompt" : "From video"} · AI: ${esc({gemini: "Gemini", claude: "Claude", openai: "ChatGPT"}[j.options.ai_provider] || j.options.ai_provider || "Claude")}</div>
+    ${["queued", "processing", "uploading", "failed"].includes(j.status) ? `<div class="bar"><div style="width:${Math.round((j.progress || 0) * 100)}%"></div></div>
+      <div class="step step-text">${esc(j.step)}</div>` : ""}
+    ${j.error ? `<div class="error">${esc(j.error)}</div>` : ""}
+    ${inner}
+  </article>`;
+}
+
+function cardBody(j) {
+  const m = j.metadata || {}, c = j.copyright || {};
   const ver = j.log?.length || 0;
   const media = j.urls.video ? `<div class="media">
       <video controls preload="metadata" src="${j.urls.video}?v=${ver}"></video>
@@ -240,15 +363,7 @@ function jobCard(j) {
       ${(j.youtube.warnings || []).map(w => `<br><span class="step">${esc(w)}</span>`).join("")}</p>
       <p class="hint">Before making it public, open YouTube Studio → Content → this video and check the "Copyright" result under Checks.</p>` : "";
 
-  return `<article class="card" data-id="${j.id}">
-    <div class="job-head">
-      <div class="job-title">${esc(m.title || (j.mode === "prompt" ? j.prompt.slice(0, 80) : "New video"))}</div>
-      <span class="badge ${j.status}">${LABEL[j.status] || j.status}</span>
-    </div>
-    <div class="step">${j.mode === "prompt" ? "From prompt" : "From video"} · AI: ${esc({gemini: "Gemini", claude: "Claude", openai: "ChatGPT"}[j.options.ai_provider] || j.options.ai_provider || "Claude")}</div>
-    ${busy || j.status === "failed" ? `<div class="bar"><div style="width:${Math.round((j.progress || 0) * 100)}%"></div></div>
-      <div class="step">${esc(j.step)}</div>` : ""}
-    ${j.error ? `<div class="error">${esc(j.error)}</div>` : ""}
+  return `
     ${media}
     ${m.title ? `
       ${canEdit ? `<details ${editing.has(j.id) ? "open" : ""}><summary>Edit title, description, tags</summary>
@@ -268,10 +383,10 @@ function jobCard(j) {
       ${j.status === "needs_review" ? `<label class="check" style="margin:0"><input type="checkbox" data-f="confirm"> I own or have licensed everything in this video</label>
         <button class="btn primary" style="width:auto;margin:0" data-act="upload">Upload anyway</button>` : ""}
       ${j.status === "failed" ? `<button class="btn" data-act="retry">Retry</button>` : ""}
+      ${j.suggestions && ["ready", "needs_review", "failed"].includes(j.status) ? `<button class="btn" data-act="reopen">Change choices</button>` : ""}
       ${j.urls.video ? `<a class="btn" href="${j.urls.video}" download>Download MP4</a>` : ""}
       ${j.urls.thumbnail ? `<a class="btn" href="${j.urls.thumbnail}" download>Thumbnail</a>` : ""}
-    </div>
-  </article>`;
+    </div>`;
 }
 
 $("#jobs").addEventListener("toggle", e => {
@@ -279,12 +394,39 @@ $("#jobs").addEventListener("toggle", e => {
   e.target.open ? editing.add(card.dataset.id) : editing.delete(card.dataset.id);
 }, true);
 
+// Picking a suggested title / description / thumbnail copies it into the editable field.
+$("#jobs").addEventListener("change", e => {
+  const el = e.target, form = el.closest("form.choose"); if (!form || !el.dataset.g) return;
+  const job = jobsById[form.dataset.choose]; if (!job) return;
+  const s = job.suggestions, set = (n, v) => form.querySelector(`[data-c=${n}]`).value = v;
+  if (el.dataset.g === "title") set("title", s.titles[el.value]);
+  if (el.dataset.g === "desc") set("description", s.descriptions[el.value]);
+  if (el.dataset.g === "thumb") set("thumbnail_text", s.thumbnails[el.value].text);
+});
+$("#jobs").addEventListener("change", e => {
+  if (e.target.dataset.c !== "auto_upload") return;
+  const btn = e.target.closest("form").querySelector("[data-act=finalize]");
+  btn.textContent = e.target.checked ? "Create video & upload" : "Create video";
+});
+
 $("#jobs").addEventListener("click", async e => {
+  const chip = e.target.closest(".chip");
+  if (chip) { chip.classList.toggle("on"); chip.setAttribute("aria-pressed", chip.classList.contains("on")); return; }
   const btn = e.target.closest("[data-act]"); if (!btn) return;
   const card = btn.closest("article"), id = card.dataset.id, f = n => card.querySelector(`[data-f=${n}]`);
+  if (btn.dataset.act === "reopen") { reopen.add(id); refresh(id); return; }
+  if (btn.dataset.act === "cancel-choose") { reopen.delete(id); refresh(id); return; }
   btn.disabled = true;
   try {
-    if (btn.dataset.act === "save") {
+    if (btn.dataset.act === "finalize") {
+      const choices = collectChoices(card.querySelector("form.choose"));
+      if (!choices.title) throw new Error("Title cannot be empty.");
+      const risk = jobsById[id]?.suggestions?.copyright_review?.risk;
+      if (choices.auto_upload && risk !== "low" && !choices.confirm_rights &&
+          !confirm("The copyright check flagged this video, so it will NOT upload automatically until you tick the ownership box.\n\nCreate the video anyway (and review it before uploading)?")) return;
+      await api(`/api/jobs/${id}/finalize`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(choices) });
+      reopen.delete(id);
+    } else if (btn.dataset.act === "save") {
       await api(`/api/jobs/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
         title: f("title").value, description: f("description").value,
         hashtags: f("hashtags").value.split(/\s+/).filter(Boolean),
@@ -298,23 +440,49 @@ $("#jobs").addEventListener("click", async e => {
     } else if (btn.dataset.act === "retry") {
       await api(`/api/jobs/${id}/retry`, { method: "POST" });
     }
-    refresh(true);
+    refresh(id);
   } catch (x) { alert(x.message); }
   finally { btn.disabled = false; }
 });
 
-let lastSig = "";
-async function refresh(force) {
-  try {
-    const jobs = await api("/api/jobs");
-    const sig = JSON.stringify(jobs.map(j => [j.id, j.status, j.progress, j.step, j.metadata, j.youtube, j.options.privacy]));
-    if (sig === lastSig && !force) return;
-    // Don't redraw a card while the user is typing in it.
-    const active = document.activeElement?.closest?.("article");
-    if (active && !force && ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement.tagName)) return;
-    lastSig = sig;
-    $("#jobs").innerHTML = jobs.length ? jobs.map(jobCard).join("") : `<div class="card empty">No videos yet. Upload one or start from a prompt.</div>`;
-  } catch {}
+// Cards are updated one at a time so a choice panel or a playing video is never wiped
+// because another job made progress. `forceId` redraws that one card unconditionally.
+let jobsById = {};
+const cardSig = {};
+async function refresh(forceId) {
+  let jobs;
+  try { jobs = await api("/api/jobs"); } catch { return; }
+  jobsById = Object.fromEntries(jobs.map(j => [j.id, j]));
+  const list = $("#jobs");
+  if (!jobs.length) { list.innerHTML = `<div class="card empty">No videos yet. Upload one or start from a prompt.</div>`; return; }
+  list.querySelector(".empty")?.remove();
+  list.querySelectorAll("article").forEach(a => { if (!jobsById[a.dataset.id]) a.remove(); });
+
+  let prev = null;
+  for (const j of jobs) {
+    let el = list.querySelector(`article[data-id="${j.id}"]`);
+    const choosing = j.suggestions && (j.status === "choosing" || reopen.has(j.id));
+    const core = JSON.stringify([j.status, j.error, j.metadata, j.youtube, j.options.privacy, j.files, choosing]);
+    const forced = forceId === true || forceId === j.id;
+    if (!el || forced || cardSig[j.id] !== core) {
+      const busy = el && el.contains(document.activeElement) && ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement.tagName);
+      // Leave an open choice panel alone unless its status changed (e.g. finalize started).
+      const keepPanel = el && !forced && choosing && el.querySelector("form.choose");
+      if (!busy && !keepPanel) {
+        const tmp = document.createElement("div");
+        tmp.innerHTML = jobCard(j);
+        const fresh = tmp.firstElementChild;
+        el ? el.replaceWith(fresh) : (prev ? prev.after(fresh) : list.prepend(fresh));
+        el = fresh;
+        cardSig[j.id] = core;
+      }
+    } else {  // only progress moved: update the bar in place
+      const bar = el.querySelector(".bar > div"), step = el.querySelector(".step-text");
+      if (bar) bar.style.width = `${Math.round((j.progress || 0) * 100)}%`;
+      if (step) step.textContent = j.step;
+    }
+    prev = el;
+  }
 }
 
 refresh(); refreshStatus();
