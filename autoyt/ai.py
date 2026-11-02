@@ -42,10 +42,38 @@ _METADATA_PROPS = {
 }
 _METADATA_REQUIRED = list(_METADATA_PROPS)
 
+_THUMBNAIL_OPTION = {
+    "type": "object",
+    "properties": {
+        "frame": {"type": "integer"},
+        "text": {"type": "string"},
+        "accent_color": {"type": "string"},
+    },
+    "required": ["frame", "text", "accent_color"],
+    "additionalProperties": False,
+}
+
+# Video mode returns several options per field so the creator can choose.
 VIDEO_SCHEMA = {
     "type": "object",
-    "properties": {**_METADATA_PROPS, "thumbnail_frame": {"type": "integer"}},
-    "required": [*_METADATA_REQUIRED, "thumbnail_frame"],
+    "properties": {
+        "titles": {"type": "array", "items": {"type": "string"}},
+        "descriptions": {"type": "array", "items": {"type": "string"}},
+        "hashtags": {"type": "array", "items": {"type": "string"}},
+        "tags": {"type": "array", "items": {"type": "string"}},
+        "category_id": {"type": "string", "enum": list(CATEGORIES)},
+        "thumbnail_options": {"type": "array", "items": _THUMBNAIL_OPTION},
+        "music_mood": {"type": "string", "enum": MOODS},
+        "music_reason": {"type": "string"},
+        "suggest_replace_audio": {"type": "boolean"},
+        "suggest_title_card": {"type": "boolean"},
+        "suggest_made_for_kids": {"type": "boolean"},
+        "tips": {"type": "array", "items": {"type": "string"}},
+        "copyright_review": _COPYRIGHT_REVIEW,
+    },
+    "required": ["titles", "descriptions", "hashtags", "tags", "category_id", "thumbnail_options", "music_mood",
+                 "music_reason", "suggest_replace_audio", "suggest_title_card", "suggest_made_for_kids", "tips",
+                 "copyright_review"],
     "additionalProperties": False,
 }
 
@@ -75,14 +103,14 @@ SCRIPT_SCHEMA = {
 SYSTEM = """You are the producer behind a YouTube channel. You write metadata that is accurate to the video, \
 specific, and clickable without being misleading.
 
-Rules:
-- title: at most 90 characters, no clickbait that the video does not deliver, no ALL CAPS sentences, no < or >.
-- description: 2-4 short paragraphs. Open with a hook line that matches the title, then what the viewer \
-gets, then a soft call to action. Do NOT put hashtags in the description; they are appended separately. No < or >.
-- hashtags: 3-8 relevant hashtags, each starting with #, no spaces inside a hashtag.
+Rules (they apply to every option when you give several):
+- title(s): at most 90 characters, no clickbait that the video does not deliver, no ALL CAPS sentences, no < or >.
+- description(s): open with a hook line that matches the video, then what the viewer gets, then a soft call \
+to action. Do NOT put hashtags in the description; they are appended separately. No < or >.
+- hashtags: relevant, each starting with #, no spaces inside a hashtag (3-8 unless asked for more).
 - tags: 8-15 search keywords/phrases (no # symbol).
-- thumbnail_text: 2-5 punchy words for the thumbnail; it must NOT simply repeat the title.
-- accent_color: a hex color like #FFD400 that pops against the thumbnail image.
+- thumbnail text: 2-5 punchy words for the thumbnail; it must NOT simply repeat the title.
+- accent color: a hex color like #FFD400 that pops against the thumbnail image.
 - music_mood: background music style that fits; choose "none" if music would hurt the video \
 (for example a talk with no pauses or a music performance).
 - Write in the language the user writes in, unless they ask for another one.
@@ -288,13 +316,31 @@ def analyze_video(frames: list[Path], duration: float, notes: str, has_audio: bo
         "The original audio will be replaced or there is none."
     )
     parts.append(("text", (
-        f"These are {len(frames)} frames sampled from a {duration:.0f}-second video I am uploading to YouTube. "
-        f"{audio_note}\n\nCreator's notes about the video: {notes.strip() or '(none given)'}\n\n"
-        "Write the YouTube metadata, pick the frame index that makes the strongest thumbnail "
-        "(sharp, expressive, uncluttered) as thumbnail_frame, and review copyright risk."
+        f"These are {len(frames)} frames (indexes 0-{len(frames) - 1}) sampled from a {duration:.0f}-second video "
+        f"I am uploading to YouTube. {audio_note}\n\nCreator's notes about the video: "
+        f"{notes.strip() or '(none given)'}\n\n"
+        "Give me options to choose from, best option first in every list:\n"
+        "- titles: 4 different title options (different angles: curiosity, benefit, how-to, story).\n"
+        "- descriptions: 3 options: (1) short and punchy, (2) storytelling, (3) detailed and search-friendly.\n"
+        "- hashtags: 15 hashtags ranked by relevance (the creator will pick some).\n"
+        "- tags: 10-15 search keywords.\n"
+        "- thumbnail_options: 3 designs, each with a different frame index (sharp, expressive, uncluttered "
+        "frames), different 2-5 word text and an accent color that pops on that frame.\n"
+        "- music_mood: the background music style that fits best, and music_reason in one short sentence.\n"
+        "- suggest_replace_audio: true if the original audio is probably unimportant or risky (e.g. b-roll, "
+        "travel shots, background music likely); false if someone is talking to camera.\n"
+        "- suggest_title_card: whether a title banner at the start helps.\n"
+        "- suggest_made_for_kids: true only if the video is clearly made primarily for children.\n"
+        "- tips: 2-4 short, specific tips to improve this video's performance.\n"
+        "- copyright_review as described."
     )))
     result = _ask(provider, parts, VIDEO_SCHEMA)
-    result["thumbnail_frame"] = max(0, min(int(result.get("thumbnail_frame", 0)), len(frames) - 1))
+    last = len(frames) - 1
+    for opt in result.get("thumbnail_options") or []:
+        opt["frame"] = max(0, min(int(opt.get("frame") or 0), last))
+    if not result.get("thumbnail_options"):
+        result["thumbnail_options"] = [{"frame": 0, "text": (result.get("titles") or ["Watch this"])[0],
+                                        "accent_color": "#FFD400"}]
     return result
 
 

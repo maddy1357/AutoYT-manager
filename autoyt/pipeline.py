@@ -25,6 +25,7 @@ class Options:
     synthetic_media: bool = False       # YouTube "altered or synthetic content" disclosure
     target_seconds: int = 60            # prompt mode only
     ai_provider: str = "gemini"         # gemini | claude | openai
+    ai_decides: bool = False            # video mode: skip the choosing step and use the AI's top picks
 
 
 @dataclass
@@ -35,7 +36,8 @@ class Job:
     options: Options
     source: str | None = None           # uploaded file path (video mode)
     prompt: str = ""                    # notes (video mode) or idea (prompt mode)
-    status: str = "queued"              # queued | processing | ready | needs_review | uploading | uploaded | failed
+    # queued | processing | choosing | ready | needs_review | uploading | uploaded | failed
+    status: str = "queued"
     step: str = ""
     progress: float = 0.0
     error: str | None = None
@@ -43,6 +45,8 @@ class Job:
     copyright: dict = field(default_factory=dict)
     files: dict = field(default_factory=dict)
     youtube: dict = field(default_factory=dict)
+    suggestions: dict = field(default_factory=dict)   # video mode: AI options to choose from
+    choices: dict = field(default_factory=dict)       # video mode: what the creator picked
     log: list = field(default_factory=list)
 
     @property
@@ -109,13 +113,22 @@ def _run(job: Job) -> None:
     try:
         job.status = "processing"
         if job.mode == "video":
-            _process_video(job)
+            if not job.suggestions:
+                _suggest_video(job)
+            if not job.choices:
+                if not job.options.ai_decides:
+                    job.status = "choosing"
+                    job.set("Suggestions ready: pick your title, thumbnail, music and more", 1.0)
+                    return
+                _apply_choices(job, default_choices(job))
+            _build_video(job)
         else:
             _process_prompt(job)
         _apply_copyright_policy(job)
         job.set("Ready for review" if job.status == "needs_review" else "Ready to upload", 1.0)
-        if job.options.auto_upload and job.status == "ready":
-            upload(job)
+        confirmed = job.choices.get("confirm_rights", False)
+        if job.options.auto_upload and (job.status == "ready" or (job.status == "needs_review" and confirmed)):
+            upload(job, override_review=confirmed)
     except Exception as e:  # surface every failure in the UI instead of killing the thread silently
         job.status, job.error = "failed", str(e) or e.__class__.__name__
         job.log.append({"t": time.time(), "msg": traceback.format_exc(limit=3)})
@@ -124,7 +137,12 @@ def _run(job: Job) -> None:
 
 # ---------------------------------------------------------------- video mode
 
-def _process_video(job: Job) -> None:
+PREVIEW_MOODS = ["calm", "upbeat", "lofi", "epic"]
+PREVIEW_SECONDS = 20
+
+
+def _suggest_video(job: Job) -> None:
+    """Stage 1: analyse the clip and prepare options (titles, descriptions, hashtags, thumbnails, music)."""
     src = Path(job.source)
     job.set("Reading video", 0.03)
     info = media.probe(src)
@@ -136,34 +154,136 @@ def _process_video(job: Job) -> None:
     if not frames:
         raise RuntimeError("Could not extract frames from the video.")
 
-    job.set(f"Writing title, description and hashtags with {_ai_label(job)}", 0.15)
+    job.set(f"Writing suggestions with {_ai_label(job)}", 0.15)
     meta = ai.analyze_video(frames, info.duration, job.prompt, info.has_audio, not job.options.replace_audio,
                             provider=job.options.ai_provider)
-    _store_metadata(job, meta)
 
-    mood = _mood(job, meta)
-    music_path = None
-    if mood != "none":
-        job.set(f"Composing original {mood} background music", 0.35)
-        music_path = music.generate(mood, info.duration, job.dir / "music.wav", seed=int(job.created))
+    job.set("Designing thumbnail options", 0.6)
+    thumbs = []
+    for i, opt in enumerate(meta["thumbnail_options"][:3]):
+        frame = frames[min(opt["frame"], len(frames) - 1)]
+        text = _clean(opt.get("text", "")) or "Watch this"
+        color = "#%02X%02X%02X" % graphics.hex_color(opt.get("accent_color", ""))
+        img = graphics.make_thumbnail(job.dir / "options" / f"thumbnail_{i}.jpg", text, color, frame=frame)
+        thumbs.append({"frame": frame.relative_to(job.dir).as_posix(), "text": text, "accent_color": color,
+                       "image": img.relative_to(job.dir).as_posix()})
+
+    job.set("Composing music previews", 0.75)
+    previews = {}
+    for mood in PREVIEW_MOODS:
+        wav = music.generate(mood, min(PREVIEW_SECONDS, info.duration + 1), job.dir / "options" / f"music_{mood}.wav",
+                             seed=int(job.created))
+        previews[mood] = wav.relative_to(job.dir).as_posix()
+
+    hashtags = _clean_hashtags(meta.get("hashtags", []))
+    job.suggestions = {
+        "titles": [t for t in (_clean(t)[:MAX_TITLE] for t in meta.get("titles", [])) if t] or ["Untitled video"],
+        "descriptions": [d for d in (_clean(d) for d in meta.get("descriptions", [])) if d] or [""],
+        "hashtags": hashtags,
+        "recommended_hashtags": hashtags[:8],
+        "tags": _fit_tags([_clean(t).replace(",", " ") for t in meta.get("tags", [])]),
+        "category_id": meta.get("category_id") if meta.get("category_id") in ai.CATEGORIES else "22",
+        "categories": ai.CATEGORIES,
+        "thumbnails": thumbs,
+        "music_mood": meta.get("music_mood") if meta.get("music_mood") in ai.MOODS else "calm",
+        "music_reason": meta.get("music_reason", ""),
+        "music_previews": previews,
+        "replace_audio": bool(meta.get("suggest_replace_audio")),
+        "title_card": bool(meta.get("suggest_title_card", True)),
+        "made_for_kids": bool(meta.get("suggest_made_for_kids")),
+        "tips": [t for t in meta.get("tips", []) if t][:4],
+        "copyright_review": meta.get("copyright_review", {"risk": "medium", "issues": []}),
+        "video": {"duration": info.duration, "has_audio": info.has_audio, "vertical": info.vertical},
+    }
+    # Show the AI's top picks until the creator chooses.
+    _store_metadata(job, {
+        "title": job.suggestions["titles"][0], "description": job.suggestions["descriptions"][0],
+        "hashtags": job.suggestions["recommended_hashtags"], "tags": job.suggestions["tags"],
+        "category_id": job.suggestions["category_id"], "thumbnail_text": thumbs[0]["text"],
+        "accent_color": thumbs[0]["accent_color"],
+    })
+    job.files["thumbnail_preview"] = thumbs[0]["image"]
+    job.save()
+
+
+def default_choices(job: Job) -> dict:
+    """The AI's top pick for every option (used for 'Let AI choose everything' and as UI defaults)."""
+    s, o = job.suggestions, job.options
+    mood = o.music_mood if o.music_mood != "auto" else s["music_mood"]
+    return {
+        "title": s["titles"][0], "description": s["descriptions"][0],
+        "hashtags": s["recommended_hashtags"], "tags": s["tags"], "category_id": s["category_id"],
+        "thumbnail_index": 0, "thumbnail_text": s["thumbnails"][0]["text"],
+        "music_mood": mood, "replace_audio": o.replace_audio or s["replace_audio"],
+        "title_card": s["title_card"] if o.ai_decides else o.title_card,
+        "privacy": o.privacy, "made_for_kids": o.made_for_kids, "synthetic_media": o.synthetic_media,
+        "auto_upload": o.auto_upload, "confirm_rights": False,
+    }
+
+
+def finalize(job: Job, choices: dict) -> None:
+    """Store the creator's picks and start stage 2 (edit + optional upload)."""
+    if job.status not in ("choosing", "ready", "needs_review", "failed") or not job.suggestions:
+        raise RuntimeError("This video is not waiting for choices.")
+    c = {**default_choices(job), **{k: v for k, v in choices.items() if v is not None}}
+    s = job.suggestions
+    c["thumbnail_index"] = max(0, min(int(c["thumbnail_index"]), len(s["thumbnails"]) - 1))
+    if c["music_mood"] not in ai.MOODS:
+        c["music_mood"] = s["music_mood"]
+    if c["privacy"] not in ("private", "unlisted", "public"):
+        c["privacy"] = "private"
+    c["category_id"] = c["category_id"] if c["category_id"] in ai.CATEGORIES else s["category_id"]
+    _apply_choices(job, c)
+    start(job)
+
+
+def _apply_choices(job: Job, c: dict) -> None:
+    """Choices win over the upload-form options (the copyright check and upload read job.options)."""
+    job.choices = c
+    o = job.options
+    o.privacy, o.made_for_kids, o.synthetic_media = c["privacy"], bool(c["made_for_kids"]), bool(c["synthetic_media"])
+    o.replace_audio, o.title_card, o.auto_upload = bool(c["replace_audio"]), bool(c["title_card"]), bool(c["auto_upload"])
+    o.music_mood = c["music_mood"]
+    job.save()
+
+
+def _build_video(job: Job) -> None:
+    """Stage 2: render the final video and thumbnail from the creator's choices."""
+    c, s = job.choices, job.suggestions
+    src = Path(job.source)
+    if not src.exists():
+        raise RuntimeError("The original upload is gone; start a new job.")
+    info = media.probe(src)
+    thumb_opt = s["thumbnails"][c["thumbnail_index"]]
+    _store_metadata(job, {
+        "title": c["title"], "description": c["description"], "hashtags": c["hashtags"], "tags": c["tags"],
+        "category_id": c["category_id"], "thumbnail_text": c["thumbnail_text"] or thumb_opt["text"],
+        "accent_color": thumb_opt["accent_color"],
+    })
+
+    music_path = job.dir / "music.wav"
+    music_path.unlink(missing_ok=True)  # a rebuild with "No music" must not keep the old track/credit
+    if c["music_mood"] != "none":
+        job.set(f"Composing original {c['music_mood']} background music", 0.1)
+        music.generate(c["music_mood"], info.duration, music_path, seed=int(job.created))
 
     overlay = None  # (png, x, y)
-    if job.options.title_card:
+    if c["title_card"]:
         overlay = graphics.make_title_overlay(job.dir / "title_card.png", job.metadata["title"],
                                               job.metadata["accent_color"], editor.target_size(info))
 
-    job.set("Editing video (format, loudness, fades, music)", 0.45)
-    out = editor.finish_video(src, job.dir / "final.mp4", music=music_path, overlay=overlay,
-                              replace_audio=job.options.replace_audio)
+    job.set("Editing video (format, loudness, fades, music)", 0.2)
+    out = editor.finish_video(src, job.dir / "final.mp4", music=music_path if music_path.exists() else None,
+                              overlay=overlay, replace_audio=bool(c["replace_audio"]))
     job.files["video"] = out.name
 
-    job.set("Designing thumbnail", 0.9)
-    frame = frames[max(0, min(int(meta.get("thumbnail_frame") or 0), len(frames) - 1))]
-    job.files["thumbnail_source"] = frame.relative_to(job.dir).as_posix()
+    job.set("Designing thumbnail", 0.92)
+    job.files["thumbnail_source"] = thumb_opt["frame"]
     thumb = graphics.make_thumbnail(job.dir / "thumbnail.jpg", job.metadata["thumbnail_text"],
-                                    job.metadata["accent_color"], frame=frame)
+                                    job.metadata["accent_color"], frame=job.dir / thumb_opt["frame"])
     job.files["thumbnail"] = thumb.name
-    job.copyright = _copyright_report(job, meta.get("copyright_review", {}), info)
+    job.files.pop("thumbnail_preview", None)
+    job.copyright = _copyright_report(job, s.get("copyright_review", {}), info)
 
 
 # ---------------------------------------------------------------- prompt mode
@@ -233,12 +353,17 @@ def _clean(text: str) -> str:
     return re.sub(r"[<>]", "", text or "").strip()
 
 
-def _store_metadata(job: Job, meta: dict) -> None:
+def _clean_hashtags(raw: list[str]) -> list[str]:
     hashtags = []
-    for h in meta.get("hashtags", []):
-        h = "#" + re.sub(r"[^\w]", "", h.lstrip("#"), flags=re.UNICODE)
+    for h in raw or []:
+        h = "#" + re.sub(r"[^\w]", "", str(h).lstrip("#"), flags=re.UNICODE)
         if len(h) > 1 and h.lower() not in {x.lower() for x in hashtags}:
             hashtags.append(h)
+    return hashtags
+
+
+def _store_metadata(job: Job, meta: dict) -> None:
+    hashtags = _clean_hashtags(meta.get("hashtags", []))
     job.metadata = {
         "title": _clean(meta.get("title", ""))[:MAX_TITLE] or "Untitled video",
         "description": _clean(meta.get("description", "")),

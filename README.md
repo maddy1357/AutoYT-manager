@@ -17,7 +17,26 @@ Everything runs on your own PC in a browser tab at `http://127.0.0.1:8000`.
 | Editing | Scaled to 1080p (vertical videos stay vertical), loudness evened out, fades, title card, music that drops under speech | Slides with a slow zoom, voice-over and music |
 | Upload | YouTube Data API: title, description, tags, category, visibility, thumbnail | Same |
 
-You can edit the title, description, hashtags, tags, thumbnail text and visibility before uploading.
+### Choosing from suggestions (video mode)
+
+When you upload a video, the AI studies it and gives you options to choose from. Every option is
+pre-filled with the AI's top pick, marked **AI pick**:
+
+- **Titles:** 4 options from different angles (curiosity, benefit, how-to, story). Each one is editable.
+- **Thumbnails:** 3 finished designs, each using a different frame, text and colour. The text is editable.
+- **Descriptions:** 3 styles (short, story, detailed/SEO). Each one is editable.
+- **Hashtags:** 15 ranked suggestions. Tap to add or remove them. You also get tags and a category.
+- **Music:** a 20-second preview of each style (calm, upbeat, lo-fi, epic), plus "No music", with the AI's reasoning.
+- **Original sound:** keep your audio with music mixed underneath, or replace it with music only.
+- **Settings:** title banner, visibility, made for kids and the synthetic-content disclosure.
+- **Tips:** short ideas for improving the video, and the copyright check result.
+
+Click **Create video & upload**. The app edits the video with your choices and uploads it to
+YouTube Studio. If you tick **Let AI choose everything** when uploading, it skips this step and uses
+the AI's top picks.
+
+After a video is built, **Change choices** lets you pick again and rebuild it. You can also edit the
+title, description, hashtags, tags, thumbnail text and visibility before uploading.
 
 ## Copyright protection
 
